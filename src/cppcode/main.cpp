@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <glm/glm.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -27,12 +28,10 @@ struct Line {
   ImVec2 p1, p2;
 };
 
-static std::vector<Line> lines;
 static std::vector<ImVec2> points;
 
 void RenderCanvas() {
   static bool is_drawing = false;
-  static ImVec2 last_pos = ImVec2(0, 0);
 
   ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
   ImVec2 canvas_size = ImGui::GetContentRegionAvail();
@@ -61,12 +60,8 @@ void RenderCanvas() {
 
   if (is_hovered && ImGui::IsMouseClicked(0)) {
     is_drawing = true;
-    if (lines.size() > 0)
-      lines.pop_back();
     if (points.size() > 0)
       points.pop_back();
-    last_pos.x = mouse_pos.x - canvas_pos.x;
-    last_pos.y = mouse_pos.y - canvas_pos.y;
   }
 
   if (is_hovered && ImGui::IsMouseDown(1)) {
@@ -74,7 +69,6 @@ void RenderCanvas() {
   }
 
   if (is_hovered && ImGui::IsKeyPressed(ImGuiKey_Tab)) {
-    lines.clear();
     points.clear();
   }
 
@@ -83,20 +77,28 @@ void RenderCanvas() {
       ImVec2 current_pos;
       current_pos.x = mouse_pos.x - canvas_pos.x;
       current_pos.y = mouse_pos.y - canvas_pos.y;
-      lines.push_back({last_pos, current_pos});
       points.push_back(current_pos);
-      last_pos = current_pos;
     } else {
       is_drawing = false;
-      lines.push_back({last_pos, lines[0].p1});
     }
   }
 
-  for (const Line &line : lines) {
-    draw_list->AddLine(
-        ImVec2(canvas_pos.x + line.p1.x, canvas_pos.y + line.p1.y),
-        ImVec2(canvas_pos.x + line.p2.x, canvas_pos.y + line.p2.y),
-        IM_COL32(155, 155, 155, 255), 2.0f);
+  {
+    // render
+    for (int i = 1; i < points.size(); i++) {
+      draw_list->AddLine(
+          ImVec2(canvas_pos.x + points[i - 1].x,
+                 canvas_pos.y + points[i - 1].y),
+          ImVec2(canvas_pos.x + points[i].x, canvas_pos.y + points[i].y),
+          IM_COL32(255, 255, 255, 255), 2.0f);
+    }
+    if (points.size() > 0) {
+      size_t i = points.size() - 1;
+      draw_list->AddLine(
+          ImVec2(canvas_pos.x + points[0].x, canvas_pos.y + points[0].y),
+          ImVec2(canvas_pos.x + points[i].x, canvas_pos.y + points[i].y),
+          IM_COL32(155, 0, 0, 255), 1.0f);
+    }
   }
 }
 
@@ -202,8 +204,10 @@ int main(int, char **) {
     if (ImGui::IsKeyDown(ImGuiKey_Escape))
       break;
   }
-  std::cout << lines.size() << std::endl;
-  std::cout << lines[0].p1 << " - " << lines[lines.size() - 1].p2 << std::endl;
+
+  std::cout << points.size() << std::endl;
+  std::cout << points[0] << " - " << points[points.size() - 1] << std::endl;
+
   // Cleanup
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
