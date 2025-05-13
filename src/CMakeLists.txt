@@ -5,6 +5,8 @@ set(SOURCES
     cppcode/main.cpp
     cppcode/shader.h
     cppcode/shader.cpp
+    cppcode/canvas.h
+    cppcode/canvas.cpp
     # cppcode/Renderer.h
     # cppcode/Renderer.cpp
     outside/stb_image.h

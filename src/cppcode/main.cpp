@@ -1,14 +1,14 @@
-#include <cstddef>
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
+#include <imgui.h>
 #include <iostream>
 #include <ostream>
 #include <stdio.h>
-#include <vector>
-// #define IM_VEC2_CLASS_EXTRA
 #define IMGUI_IMPL_OPENGL_ES3
-#include "imgui.h"
+#define IM_VEC2_CLASS_EXTRA
+#include "canvas.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #define GL_SILENCE_DEPRECATION
@@ -27,80 +27,6 @@ static void glfw_error_callback(int error, const char *description) {
 struct Line {
   ImVec2 p1, p2;
 };
-
-static std::vector<ImVec2> points;
-
-void RenderCanvas() {
-  static bool is_drawing = false;
-
-  ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
-  ImVec2 canvas_size = ImGui::GetContentRegionAvail();
-  // if (canvas_size.x < 50.0f)
-  //   canvas_size.x = 50.0f;
-  // if (canvas_size.y < 50.0f)
-  //   canvas_size.y = 50.0f;
-
-  ImDrawList *draw_list = ImGui::GetWindowDrawList();
-  // draw_list->AddRectFilled(
-  //     canvas_pos,
-  //     ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
-  //     IM_COL32(50, 50, 50, 255));
-  // draw_list->AddRect(
-  //     canvas_pos,
-  //     ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
-  //     IM_COL32(255, 255, 255, 255));
-
-  ImGui::InvisibleButton("canvas", canvas_size,
-                         ImGuiButtonFlags_MouseButtonLeft |
-                             ImGuiButtonFlags_MouseButtonRight);
-  bool is_hovered = ImGui::IsItemHovered();
-  bool is_active = ImGui::IsItemActive();
-  ImVec2 mouse_pos = ImGui::GetIO().MousePos;
-  ImVec2 mouse_delta = ImGui::GetIO().MouseDelta;
-
-  if (is_hovered && ImGui::IsMouseClicked(0)) {
-    is_drawing = true;
-    if (points.size() > 0)
-      points.pop_back();
-  }
-
-  if (is_hovered && ImGui::IsMouseDown(1)) {
-    points.pop_back();
-  }
-
-  if (is_hovered && ImGui::IsKeyPressed(ImGuiKey_Tab)) {
-    points.clear();
-  }
-
-  if (is_drawing) {
-    if (is_active && ImGui::IsMouseDown(0)) {
-      ImVec2 current_pos;
-      current_pos.x = mouse_pos.x - canvas_pos.x;
-      current_pos.y = mouse_pos.y - canvas_pos.y;
-      points.push_back(current_pos);
-    } else {
-      is_drawing = false;
-    }
-  }
-
-  {
-    // render
-    for (int i = 1; i < points.size(); i++) {
-      draw_list->AddLine(
-          ImVec2(canvas_pos.x + points[i - 1].x,
-                 canvas_pos.y + points[i - 1].y),
-          ImVec2(canvas_pos.x + points[i].x, canvas_pos.y + points[i].y),
-          IM_COL32(255, 255, 255, 255), 2.0f);
-    }
-    if (points.size() > 0) {
-      size_t i = points.size() - 1;
-      draw_list->AddLine(
-          ImVec2(canvas_pos.x + points[0].x, canvas_pos.y + points[0].y),
-          ImVec2(canvas_pos.x + points[i].x, canvas_pos.y + points[i].y),
-          IM_COL32(155, 0, 0, 255), 1.0f);
-    }
-  }
-}
 
 // Main code
 int main(int, char **) {
@@ -141,6 +67,12 @@ int main(int, char **) {
   // Our state
   ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
+  keyframes.push_back({0, 0, 0, {}});
+  int n_points = 8;
+  bool editslice = true;
+  float lerp_anim_t = 0.0f;
+  bool show_3d_render = false;
+
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
     if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0) {
@@ -153,39 +85,70 @@ int main(int, char **) {
     ImGui::NewFrame();
 
     {
-#ifdef IMGUI_HAS_VIEWPORT
-      ImGuiViewport *viewport = ImGui::GetMainViewport();
-      ImGui::SetNextWindowPos(viewport->GetWorkPos());
-      ImGui::SetNextWindowSize(viewport->GetWorkSize());
-      ImGui::SetNextWindowViewport(viewport->ID);
-#else
       ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
       ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-#endif
       ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
       ImGui::Begin("canvas", nullptr,
                    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize |
                        ImGuiWindowFlags_NoBringToFrontOnFocus);
-      RenderCanvas();
+      if (editslice) {
+        RenderCanvas();
+      } else {
+        RenderCanvasLerp(lerp_anim_t);
+      }
       ImGui::End();
       ImGui::PopStyleVar(1);
     }
 
-    // 2. Show a simple window that we create ourselves. We use a Begin/End pair
-    // to create a named window.
+    if (show_3d_render) {
+      ImGui::Begin("3d render");
+      ImGui::End();
+    }
 
     {
       static float f = 0.0f;
       static int counter = 0;
 
-      ImGui::Begin("Hello, world!"); // Create a window called "Hello, world!"
-                                     // and append into it.
-
-      ImGui::Text("This is some useful text."); // Display some text (you can
-                                                // use a format strings too)
-                                                //
+      ImGui::Begin("controls"); // Create a window called "Hello, world!"
+                                // and append into it.
       ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                   1000.0f / io.Framerate, io.Framerate);
+      if (ImGui::Checkbox("Edit settings", &editslice)) {
+        if (!editslice) {
+          uint64_t total_no_vertices = 0;
+          for (auto frame : keyframes) {
+            total_no_vertices += frame.points.size();
+          }
+          n_points = (long double)(total_no_vertices) / keyframes.size();
+          // n_points = std::min(n_points, 3000);
+          std::cout << "resampling to : " << n_points << " points" << std::endl;
+          for (int i = 0; i < keyframes.size(); i++) {
+            resample(i, n_points);
+          }
+        }
+      }
+      if (editslice) {
+        if (ImGui::Button("Save Frame")) {
+          std::rotate(keyframes[0].points.begin(),
+                      keyframes[0].points.begin() + keyframes[0].index_of_max_y,
+                      keyframes[0].points.end());
+          keyframes[0].index_of_max_y = 0;
+          keyframes.insert(keyframes.begin(), {0, 0, 0, {}});
+        }
+        ImGui::SliderInt("n_points", &n_points, 4, 16);
+        ImGui::Text("%lu", (long unsigned int)1 << n_points);
+        if (ImGui::Button("Resample")) {
+          std::rotate(keyframes[0].points.begin(),
+                      keyframes[0].points.begin() + keyframes[0].index_of_max_y,
+                      keyframes[0].points.end());
+          keyframes[0].index_of_max_y = 0;
+          resample(0, 1 << n_points);
+        }
+      } else {
+        ImGui::SliderFloat("t", &lerp_anim_t, 0.0, 0.999);
+        // std::cout << lerp_anim_t << std::endl;
+      }
+      ImGui::Checkbox("Show Render", &show_3d_render);
       ImGui::End();
     }
 
@@ -205,8 +168,8 @@ int main(int, char **) {
       break;
   }
 
-  std::cout << points.size() << std::endl;
-  std::cout << points[0] << " - " << points[points.size() - 1] << std::endl;
+  // std::cout << keyframes.size() << std::endl;
+  // std::cout << points[0] << " - " << points[points.size() - 1] << std::endl;
 
   // Cleanup
   ImGui_ImplOpenGL3_Shutdown();
