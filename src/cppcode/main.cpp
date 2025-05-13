@@ -2,6 +2,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <iostream>
+#include <ostream>
 #include <stdio.h>
 #include <vector>
 // #define IM_VEC2_CLASS_EXTRA
@@ -13,6 +14,11 @@
 #include <GL/gl.h>
 #include <GLFW/glfw3.h> // Will drag system OpenGL headers
 
+std::ostream &operator<<(std::ostream &out, ImVec2 point) {
+  out << point.x << ", " << point.y;
+  return out;
+}
+
 static void glfw_error_callback(int error, const char *description) {
   fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
@@ -22,6 +28,7 @@ struct Line {
 };
 
 static std::vector<Line> lines;
+static std::vector<ImVec2> points;
 
 void RenderCanvas() {
   static bool is_drawing = false;
@@ -29,20 +36,20 @@ void RenderCanvas() {
 
   ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
   ImVec2 canvas_size = ImGui::GetContentRegionAvail();
-  if (canvas_size.x < 50.0f)
-    canvas_size.x = 50.0f;
-  if (canvas_size.y < 50.0f)
-    canvas_size.y = 50.0f;
+  // if (canvas_size.x < 50.0f)
+  //   canvas_size.x = 50.0f;
+  // if (canvas_size.y < 50.0f)
+  //   canvas_size.y = 50.0f;
 
   ImDrawList *draw_list = ImGui::GetWindowDrawList();
-  draw_list->AddRectFilled(
-      canvas_pos,
-      ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
-      IM_COL32(50, 50, 50, 255));
-  draw_list->AddRect(
-      canvas_pos,
-      ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
-      IM_COL32(255, 255, 255, 255));
+  // draw_list->AddRectFilled(
+  //     canvas_pos,
+  //     ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
+  //     IM_COL32(50, 50, 50, 255));
+  // draw_list->AddRect(
+  //     canvas_pos,
+  //     ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
+  //     IM_COL32(255, 255, 255, 255));
 
   ImGui::InvisibleButton("canvas", canvas_size,
                          ImGuiButtonFlags_MouseButtonLeft |
@@ -54,8 +61,21 @@ void RenderCanvas() {
 
   if (is_hovered && ImGui::IsMouseClicked(0)) {
     is_drawing = true;
+    if (lines.size() > 0)
+      lines.pop_back();
+    if (points.size() > 0)
+      points.pop_back();
     last_pos.x = mouse_pos.x - canvas_pos.x;
     last_pos.y = mouse_pos.y - canvas_pos.y;
+  }
+
+  if (is_hovered && ImGui::IsMouseDown(1)) {
+    points.pop_back();
+  }
+
+  if (is_hovered && ImGui::IsKeyPressed(ImGuiKey_Tab)) {
+    lines.clear();
+    points.clear();
   }
 
   if (is_drawing) {
@@ -64,9 +84,11 @@ void RenderCanvas() {
       current_pos.x = mouse_pos.x - canvas_pos.x;
       current_pos.y = mouse_pos.y - canvas_pos.y;
       lines.push_back({last_pos, current_pos});
+      points.push_back(current_pos);
       last_pos = current_pos;
     } else {
       is_drawing = false;
+      lines.push_back({last_pos, lines[0].p1});
     }
   }
 
@@ -74,7 +96,7 @@ void RenderCanvas() {
     draw_list->AddLine(
         ImVec2(canvas_pos.x + line.p1.x, canvas_pos.y + line.p1.y),
         ImVec2(canvas_pos.x + line.p2.x, canvas_pos.y + line.p2.y),
-        IM_COL32(255, 255, 0, 255), 2.0f);
+        IM_COL32(155, 155, 155, 255), 2.0f);
   }
 }
 
@@ -176,8 +198,12 @@ int main(int, char **) {
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
     glfwSwapBuffers(window);
+
+    if (ImGui::IsKeyDown(ImGuiKey_Escape))
+      break;
   }
   std::cout << lines.size() << std::endl;
+  std::cout << lines[0].p1 << " - " << lines[lines.size() - 1].p2 << std::endl;
   // Cleanup
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
