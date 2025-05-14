@@ -1,19 +1,34 @@
 #include "canvas.h"
+#include "glad/gl.h"
+#include "shader.h"
+#include <GL/gl.h>
 #include <algorithm>
 #include <cmath>
+#include <glm/fwd.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/trigonometric.hpp>
 #include <imgui.h>
+#include <iostream>
 #include <random>
+// #include <sched.h>
 #include <vector>
 
 std::vector<keyframe> keyframes;
 
+GLuint framebuffer, tex, rbo;
+GLuint meshVAO, meshVBO;
+
+float canvasheight, canvaswidth;
+
+Shader *shdr = nullptr;
+
 void RenderCanvasLerp(float t_raw) {
   ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
   ImVec2 canvas_size = ImGui::GetContentRegionAvail();
-  if (canvas_size.x < 50.0f)
-    canvas_size.x = 50.0f;
-  if (canvas_size.y < 50.0f)
-    canvas_size.y = 50.0f;
+  canvasheight = canvas_size.y;
+  canvaswidth = canvas_size.x;
 
   ImDrawList *draw_list = ImGui::GetWindowDrawList();
   int i = 0, j = 0;
@@ -90,7 +105,7 @@ void RenderCanvas() {
 
   if (is_drawing) {
     if (is_active && ImGui::IsMouseDown(0)) {
-      ImVec2 current_pos;
+      point current_pos;
       current_pos.x = mouse_pos.x - canvas_pos.x;
       current_pos.y = mouse_pos.y - canvas_pos.y;
       if (current_pos.y > keyframes[0].max_y) {
@@ -126,7 +141,7 @@ void RenderCanvas() {
   }
 }
 
-float distance(const ImVec2 &first, const ImVec2 &other) {
+float distance(const point &first, const point &other) {
   return std::sqrt((first.x - other.x) * (first.x - other.x) +
                    (first.y - other.y) * (first.y - other.y));
 }
@@ -140,7 +155,7 @@ float randomFloat(float min, float max) {
 }
 
 void resample(size_t kf_index, size_t n) {
-  std::vector<ImVec2> &pt = keyframes[kf_index].points;
+  std::vector<point> &pt = keyframes[kf_index].points;
   if (pt.size() < 2 || n < 2)
     return;
 
@@ -150,8 +165,8 @@ void resample(size_t kf_index, size_t n) {
 
   // Step 1: Compute segment lengths including loop back to start
   for (size_t i = 0; i < pointCount; ++i) {
-    const ImVec2 &a = pt[i];
-    const ImVec2 &b = pt[(i + 1) % pointCount]; // wrap around
+    const point &a = pt[i];
+    const point &b = pt[(i + 1) % pointCount]; // wrap around
     float len = distance(a, b);
     segmentLengths[i] = len;
     totalLength += len;
@@ -164,7 +179,7 @@ void resample(size_t kf_index, size_t n) {
   }
 
   // Step 2: Resample with equal spacing along the loop
-  std::vector<ImVec2> nwPolyline;
+  std::vector<point> nwPolyline;
   float targetSpacing = totalLength / n;
   float accumulated = 0.0f;
   size_t currSeg = 0;
@@ -184,10 +199,10 @@ void resample(size_t kf_index, size_t n) {
     float segLen = segmentLengths[currSeg];
     float t = segLen > 0 ? (distAlong - segStart) / segLen : 0.0f;
 
-    const ImVec2 &p0 = pt[currSeg];
-    const ImVec2 &p1 = pt[(currSeg + 1) % pointCount];
+    const point &p0 = pt[currSeg];
+    const point &p1 = pt[(currSeg + 1) % pointCount];
 
-    ImVec2 interp(p0.x + t * (p1.x - p0.x), p0.y + t * (p1.y - p0.y));
+    point interp(p0.x + t * (p1.x - p0.x), p0.y + t * (p1.y - p0.y));
 
     nwPolyline.push_back(interp);
   }
@@ -206,4 +221,103 @@ void resample(size_t kf_index, size_t n) {
               nwPolyline.end());
 
   pt.swap(nwPolyline);
+}
+
+void initOpengl() {
+  auto wsize = ImGui::GetWindowSize();
+  if (!gladLoaderLoadGL()) {
+    std::cout << "Failed to initialize GLAD" << std::endl;
+    return;
+  }
+
+  delete shdr;
+  shdr = new Shader("../src/shaders/mesh.vert", "../src/shaders/mesh.frag");
+
+  // TODO generalize for n ribs.
+  float vertices[3 * 2 * keyframes[0].points.size()];
+  for (int i = 0; i < keyframes[0].points.size(); i++) {
+    vertices[6 * i] = keyframes[0].points[i].x / canvaswidth;
+    vertices[6 * i + 1] = keyframes[0].points[i].y / canvasheight;
+    vertices[6 * i + 2] = 0.5;
+    vertices[6 * i + 3] = keyframes[1].points[i].x / canvaswidth;
+    vertices[6 * i + 4] = keyframes[1].points[i].y / canvasheight;
+    vertices[6 * i + 5] = -0.5;
+  }
+
+  glGenVertexArrays(1, &meshVAO);
+  glGenBuffers(1, &meshVBO);
+  glBindVertexArray(meshVAO);
+  glBindBuffer(GL_ARRAY_BUFFER, meshVBO);
+  glBufferData(GL_ARRAY_BUFFER, 3 * 2 * keyframes[0].points.size(), &vertices,
+               GL_STATIC_DRAW);
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+
+  glDeleteRenderbuffers(1, &rbo);
+  glDeleteFramebuffers(1, &framebuffer);
+
+  glGenFramebuffers(1, &framebuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glGenTextures(1, &tex);
+  glBindTexture(GL_TEXTURE_2D, tex);
+
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, wsize.x, wsize.y, 0, GL_RGB,
+               GL_UNSIGNED_BYTE, NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glBindTexture(GL_TEXTURE_2D, 0);
+
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                         tex, 0);
+
+  glGenRenderbuffers(1, &rbo);
+  glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, wsize.x, wsize.y);
+  glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                            GL_RENDERBUFFER, rbo);
+  if ((glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)) {
+    std::cerr << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!"
+              << std::endl;
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void Render3D(double yaw, double pitch, double roll) {
+  // Get the current cursor position (where your window is)
+  ImVec2 wsize = ImGui::GetWindowSize();
+  int texwidth, texheight;
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &texwidth);
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &texheight);
+
+  if ((glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) ||
+      (texwidth != wsize.x) || (texheight != wsize.y)) {
+    initOpengl();
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glViewport(0, 0, wsize.x, wsize.y);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+  glEnable(GL_DEPTH_TEST);
+
+  shdr->use();
+  glm::mat4 model = glm::mat4(1.0);
+  model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+  glm::mat4 view = glm::mat4(1.0);
+  view = glm::translate(view, glm::vec3(0.0f, 0.0f, -1.5f));
+  glm::mat4 proj = glm::perspective(
+      glm::radians(45.0f), (float)wsize.x / (float)wsize.y, 0.1f, 100.0f);
+  shdr->setMat4("model", model);
+  shdr->setMat4("view", view);
+  shdr->setMat4("proj", proj);
+  glBindVertexArray(meshVAO);
+  glDisable(GL_CULL_FACE);
+
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 2 * keyframes[0].points.size());
+
+  glDisable(GL_DEPTH_TEST);
+  // Because I use the texture from OpenGL, I need to invert the V from the
+  // UV.
+  ImGui::Image((ImTextureID)tex, wsize, ImVec2(0, 1), ImVec2(1, 0));
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }

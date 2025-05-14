@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <glm/glm.hpp>
+#include <glm/trigonometric.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <imgui.h>
@@ -100,8 +101,9 @@ int main(int, char **) {
       ImGui::PopStyleVar(1);
     }
 
-    if (show_3d_render) {
+    if (show_3d_render && !editslice) {
       ImGui::Begin("3d render");
+      Render3D(0.0, 0.0, 0.0);
       ImGui::End();
     }
 
@@ -119,11 +121,11 @@ int main(int, char **) {
           for (auto frame : keyframes) {
             total_no_vertices += frame.points.size();
           }
-          n_points = (long double)(total_no_vertices) / keyframes.size();
+          long double n_p = (long double)(total_no_vertices) / keyframes.size();
           // n_points = std::min(n_points, 3000);
-          std::cout << "resampling to : " << n_points << " points" << std::endl;
+          std::cout << "resampling to : " << n_p << " points" << std::endl;
           for (int i = 0; i < keyframes.size(); i++) {
-            resample(i, n_points);
+            resample(i, n_p);
           }
         }
       }
@@ -147,8 +149,12 @@ int main(int, char **) {
       } else {
         ImGui::SliderFloat("t", &lerp_anim_t, 0.0, 0.999);
         // std::cout << lerp_anim_t << std::endl;
+        if (ImGui::Checkbox("Show Render", &show_3d_render)) {
+          if (show_3d_render) {
+            initOpengl();
+          }
+        };
       }
-      ImGui::Checkbox("Show Render", &show_3d_render);
       ImGui::End();
     }
 

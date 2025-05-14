@@ -4,9 +4,7 @@
 #include <iostream>
 #include <vector>
 
-#include <glad/gl.h>
-
-uint32_t CreateComputeShader(const std::filesystem::path &path) {
+uint32_t CreateShader(const std::filesystem::path &path, GLenum shaderType) {
   std::ifstream file(path);
 
   if (!file.is_open()) {
@@ -18,7 +16,7 @@ uint32_t CreateComputeShader(const std::filesystem::path &path) {
   contentStream << file.rdbuf();
   std::string shaderSource = contentStream.str();
 
-  GLuint shaderHandle = glCreateShader(GL_COMPUTE_SHADER);
+  GLuint shaderHandle = glCreateShader(shaderType);
 
   const GLchar *source = (const GLchar *)shaderSource.c_str();
   glShaderSource(shaderHandle, 1, &source, 0);
@@ -66,8 +64,9 @@ uint32_t CreateComputeShader(const std::filesystem::path &path) {
 }
 
 uint32_t ReloadComputeShader(uint32_t shaderHandle,
-                             const std::filesystem::path &path) {
-  uint32_t newShaderHandle = CreateComputeShader(path);
+                             const std::filesystem::path &path,
+                             GLenum shaderType) {
+  uint32_t newShaderHandle = CreateShader(path, shaderType);
 
   // Return old shader if compilation failed
   if (newShaderHandle == -1)
